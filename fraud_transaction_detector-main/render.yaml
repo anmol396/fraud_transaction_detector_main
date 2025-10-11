@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: fraudb
+    env: python
+    plan: free
+    buildCommand: |
+      pip install -r requirements.txt
+      python manage.py collectstatic --noinput
+    startCommand: |
+      gunicorn project_settings.wsgi:application --log-file - --workers=3 --threads=2 --timeout=120
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DJANGO_DEBUG
+        value: "0"
+      - key: ALLOWED_HOSTS
+        value: "${RENDER_EXTERNAL_URL}"
+      - key: CSRF_TRUSTED_ORIGINS
+        value: "${RENDER_EXTERNAL_URL}"
+      - key: SECURE_SSL_REDIRECT
+        value: "1"
+      - key: SESSION_COOKIE_SECURE
+        value: "1"
+      - key: CSRF_COOKIE_SECURE
+        value: "1"

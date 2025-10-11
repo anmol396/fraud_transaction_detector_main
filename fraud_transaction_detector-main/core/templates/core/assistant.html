@@ -1,0 +1,568 @@
+{% extends 'core/base.html' %}
+{% load static %}
+
+{% block title %}Assistant Chat{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'assets/css/assistant.css' %}?v=20251010-1306">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-3 pt-1 chat-container">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <div>
+      <h2 class="mb-1"><i class="bi bi-chat-dots-fill text-primary me-2"></i>AI Insights</h2>
+      <p class="text-muted mb-1">Ask about analytics, the model, or any transaction (UUID). I’ll pull live context where possible.</p>
+      <div class="small text-muted">You can ask about: feature importance, high‑risk lists, weekly summaries, transaction explanations, data quality, retraining, or pipeline status.</div>
+    </div>
+    <a href="{% url 'dashboard' %}" class="btn btn-outline-primary"><i class="bi bi-graph-up me-2"></i>Dashboard</a>
+  </div>
+
+  <div class="chat-layout">
+    <!-- Sessions sidebar -->
+    <div class="sessions-card">
+      <div class="sessions-header">
+        <div class="sessions-title">Recent Chats</div>
+        <div class="sidebar-actions d-flex gap-2">
+          <button id="newChatBtn" class="btn btn-outline-primary btn-sm"><i class="bi bi-plus-circle"></i> New Chat</button>
+          <button id="clearAllBtn" class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i> Clear All</button>
+        </div>
+      </div>
+      <div id="sessionsList" class="sessions-list"></div>
+    </div>
+
+    <!-- Chat card -->
+    <div class="card chat-card">
+      <div id="messages" class="chat-messages">
+      <div class="msg bot"><div class="bubble">
+        Hi! I can summarize analytics, explain predictions, and answer questions about specific transactions.
+        Paste a transaction ID (UUID) like <code class="inline">2f0e5e7a-1234-4c5d-9ab1-3a5d6f8e9c01</code> to include its details.
+      </div></div>
+      </div>
+      <div class="p-3">
+      <div class="row g-2 align-items-center chat-controls" style="row-gap: .5rem;">
+        <div class="col-12 col-lg-8">
+          <input id="messageInput" type="text" class="form-control form-control-lg" placeholder="Type a message... e.g., Show me a weekly fraud summary" />
+        </div>
+        <div class="col-6 col-lg-2">
+          <input id="txnInput" type="text" class="form-control" placeholder="Transaction ID (optional)" />
+        </div>
+        <div class="col-6 col-lg-2 d-grid">
+          <button id="sendBtn" class="btn btn-primary btn-lg" style="min-width: 120px;"><i class="bi bi-send me-1"></i> Send</button>
+        </div>
+      </div>
+
+      <hr class="thin-divider">
+
+      <div class="d-flex flex-wrap gap-2 align-items-center">
+        <div class="control-pill d-flex align-items-center">
+          <label for="modeSelect" class="me-1">Mode</label>
+          <select id="modeSelect" class="form-select form-select-sm border-0">
+            <option value="free" selected>General</option>
+            <option value="transaction">Transaction Q&A</option>
+            <option value="analytics">Analytics Summary</option>
+            <option value="model">Model Explain</option>
+          </select>
+        </div>
+        <div class="control-pill d-flex align-items-center">
+          <label for="rangeSelect" class="me-1">Range</label>
+          <select id="rangeSelect" class="form-select form-select-sm border-0">
+            <option value="7d" selected>7d</option>
+            <option value="24h">24h</option>
+            <option value="30d">30d</option>
+            <option value="all">All</option>
+          </select>
+        </div>
+        <div class="control-pill form-check form-switch m-0">
+          <input class="form-check-input" type="checkbox" id="includeSnapshot" checked>
+          <label class="form-check-label" for="includeSnapshot">Include analytics snapshot</label>
+        </div>
+      </div>
+
+      <div class="mt-2 d-flex gap-3 align-items-center flex-wrap">
+        <button id="copyBtn" class="btn btn-outline-secondary btn-sm"><i class="bi bi-clipboard"></i> Copy last reply</button>
+        <button id="clearBtn" class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i> Clear</button>
+      </div>
+
+      <div class="mt-3 d-flex gap-2 flex-wrap">
+        <div class="suggestion" data-msg="Give me a summary of recent fraud trends.">Summary of fraud trends</div>
+        <div class="suggestion" data-msg="What are the most important features affecting fraud?">Top features</div>
+        <div class="suggestion" data-msg="List any high-risk transactions I should review.">High-risk items</div>
+      </div>
+      </div>
+      <div class="chat-input p-3 d-flex align-items-center justify-content-between">
+        <div class="text-muted small">AI Insights</div>
+        <div class="text-muted small">Signed in as {{ user_email }}</div>
+    </div>
+  </div>
+{% endblock %}
+{% block extra_js %}
+<script>
+(function(){
+  const messagesEl = document.getElementById('messages');
+  const inputEl = document.getElementById('messageInput');
+  const txnEl = document.getElementById('txnInput');
+  const sendBtn = document.getElementById('sendBtn');
+  const modeEl = document.getElementById('modeSelect');
+  const rangeEl = document.getElementById('rangeSelect');
+  const USER_NAME = "{{ request.user.username|default:'' }}";
+  // Avatars (images if available, fallback to initials)
+  const BOT_AVATAR_URL = "{% static 'assets/imgs/logo.svg' %}"; // reuse logo as bot mark
+  const USER_AVATAR_URL = "{{ user_avatar_url|default:'' }}"; // served via accounts.views.avatar_image_view
+
+  // Sessions state and controls
+  const sessionsListEl = document.getElementById('sessionsList');
+  const newChatBtn = document.getElementById('newChatBtn');
+  const clearAllBtn = document.getElementById('clearAllBtn');
+  const copyBtn = document.getElementById('copyBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const snapshotEl = document.getElementById('includeSnapshot');
+  // Persist current session for this tab only (clears when tab/browser closes)
+  let currentSessionId = sessionStorage.getItem('aiInsightsSessionId') || null;
+  // When true, do not auto-open any session on the next loadSessions() call
+  let suppressAutoOpen = false;
+  const DJANGO_CSRF = '{{ csrf_token }}';
+
+  function createAvatar(who){
+    const el = document.createElement('div');
+    el.className = 'avatar';
+
+    function setInitial(char){
+      el.classList.add('initial');
+      el.textContent = (char || 'U').toUpperCase();
+    }
+
+    if (who === 'bot') {
+      if (BOT_AVATAR_URL) {
+        const img = new Image();
+        img.src = BOT_AVATAR_URL;
+        img.alt = 'AI';
+        img.onerror = () => { el.innerHTML=''; setInitial('M'); };
+        el.appendChild(img);
+        return el;
+      }
+      setInitial('M');
+      return el;
+    }
+
+    // user avatar
+    if (USER_AVATAR_URL) {
+      const img = new Image();
+      img.src = USER_AVATAR_URL;
+      img.alt = USER_NAME || 'You';
+      img.onerror = () => { el.innerHTML=''; setInitial((USER_NAME||'U').charAt(0)); };
+      el.appendChild(img);
+      return el;
+    }
+    setInitial((USER_NAME||'U').charAt(0));
+    return el;
+  }
+
+  function formatTime(s){
+    try { const d = new Date(s); return isNaN(d.getTime()) ? '' : d.toLocaleString(); } catch(e){ return ''; }
+  }
+
+  function appendMessage(text, who='bot', createdAt=null){
+    const wrap = document.createElement('div');
+    wrap.className = 'msg ' + who;
+    const bubbleWrap = document.createElement('div');
+    bubbleWrap.className = 'bubble-wrap';
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.innerHTML = renderMarkdown(text);
+    const timeEl = document.createElement('div');
+    timeEl.className = 'msg-time';
+    if (createdAt) timeEl.textContent = formatTime(createdAt);
+    bubbleWrap.appendChild(bubble);
+    bubbleWrap.appendChild(timeEl);
+    const avatar = createAvatar(who);
+    // Order is controlled by CSS using orders; just append both
+    wrap.appendChild(avatar);
+    wrap.appendChild(bubbleWrap);
+    messagesEl.appendChild(wrap);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  async function loadSessions(){
+    try {
+      const res = await fetch('/api/assistant-chat/sessions', { credentials: 'same-origin' });
+      const j = await res.json();
+      if (!(res.ok && j.status === 'success')) return;
+      const sessionsArr = Array.isArray(j.sessions) ? j.sessions : [];
+      renderSessions(sessionsArr);
+      // Respect one-time suppression (used by New Chat button)
+      if (suppressAutoOpen) { suppressAutoOpen = false; return; }
+      // Auto-open stored session if available and present; otherwise open the most recent
+      if (currentSessionId && sessionsArr.length){
+        const exists = sessionsArr.some(s => String(s.id) === String(currentSessionId));
+        if (exists) {
+          await openSession(currentSessionId);
+        } else if (sessionsArr.length) {
+          await openSession(sessionsArr[0].id);
+        }
+      } else if (!currentSessionId && sessionsArr.length){
+        await openSession(sessionsArr[0].id);
+      }
+    } catch(e) { /* ignore */ }
+  }
+
+  function renderSessions(sessions){
+    sessionsListEl.innerHTML = '';
+    if (!sessions || !sessions.length){
+      const empty = document.createElement('div');
+      empty.className = 'text-muted small';
+      empty.style.padding = '6px 8px';
+      empty.textContent = 'No chats yet. Start a new conversation.';
+      sessionsListEl.appendChild(empty);
+      return;
+    }
+    (sessions || []).slice(0,20).forEach(s => {
+      const item = document.createElement('div');
+      item.className = 'session-item' + (String(s.id) === String(currentSessionId) ? ' active' : '');
+      item.setAttribute('data-id', s.id);
+      item.innerHTML = `
+        <div>
+          <div class="session-title">${escapeHtml(s.title || 'New chat')}</div>
+          <div class="session-preview">${escapeHtml(s.last_preview || '')}</div>
+        </div>
+        <div class="session-actions d-flex align-items-start gap-1">
+          <button class="btn btn-outline-secondary btn-sm" title="Rename" data-rename><i class="bi bi-pencil-square"></i></button>
+          <button class="btn btn-outline-danger btn-sm" title="Delete" data-delete><i class="bi bi-trash"></i></button>
+        </div>`;
+
+      // Rename
+      item.querySelector('[data-rename]')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const newTitle = prompt('Rename chat', s.title || '')?.trim();
+        if (!newTitle) return;
+        try {
+          await fetch(`/api/assistant-chat/session/${s.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken(), 'X-Requested-With': 'XMLHttpRequest' },
+            body: JSON.stringify({ title: newTitle }),
+            credentials: 'same-origin'
+          });
+          loadSessions();
+        } catch(_){}
+      });
+      // Delete
+      item.querySelector('[data-delete]')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!confirm('Delete this chat?')) return;
+        try {
+          await fetch(`/api/assistant-chat/session/${s.id}/delete`, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': getCSRFToken(), 'X-Requested-With': 'XMLHttpRequest' },
+            credentials: 'same-origin'
+          });
+          if (String(currentSessionId) === String(s.id)) {
+            currentSessionId = null;
+            messagesEl.innerHTML = '';
+          }
+          loadSessions();
+        } catch(_){}
+      });
+      // Open session by clicking item (text area)
+      item.addEventListener('click', async () => { await openSession(s.id); });
+      sessionsListEl.appendChild(item);
+    });
+  }
+
+  async function openSession(id){
+    try {
+      const res = await fetch(`/api/assistant-chat/session/${id}`, { credentials: 'same-origin' });
+      const j = await res.json();
+      if (!(res.ok && j.status === 'success')) return;
+      currentSessionId = String(j.session);
+      sessionStorage.setItem('aiInsightsSessionId', currentSessionId);
+      // Highlight selection
+      sessionsListEl.querySelectorAll('.session-item').forEach(el => el.classList.toggle('active', String(el.getAttribute('data-id'))===currentSessionId));
+      // Render messages
+      messagesEl.innerHTML = '';
+      (j.messages || []).forEach(m => appendMessage(m.text || '', m.role === 'user' ? 'user' : 'bot', m.created_at || null));
+    } catch(e) { /* ignore */ }
+  }
+
+  function escapeHtml(s){
+    const m = { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;' };
+    return String(s).replace(/[&<>"']/g, c => m[c]);
+  }
+
+  // Safe Markdown rendering: bold, italics, headings, bullets/numbered lists, links, inline & fenced code
+  function renderMarkdown(text){
+    if (!text) return '';
+
+    // 1) Escape HTML first
+    let esc = escapeHtml(String(text));
+
+    // 2) Extract fenced code blocks ```lang\n...```
+    const codeBlocks = [];
+    esc = esc.replace(/```([a-zA-Z0-9_+-]*)\n([\s\S]*?)```/g, function(_, lang, body){
+      const idx = codeBlocks.length;
+      codeBlocks.push({ lang: lang || '', body: body });
+      return `%%CODEBLOCK_${idx}%%`;
+    });
+
+    // 3) Extract inline code `code`
+    const inlineCodes = [];
+    esc = esc.replace(/`([^`]+)`/g, function(_, body){
+      const idx = inlineCodes.length;
+      inlineCodes.push(body);
+      return `%%INLINECODE_${idx}%%`;
+    });
+
+    // 4) Links [text](url)
+    esc = esc.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1<\/a>');
+
+    // 5) Bold then italics (avoid interfering with code placeholders)
+    esc = esc.replace(/\*\*(.+?)\*\*/g, '<strong>$1<\/strong>');
+    esc = esc.replace(/(^|\W)\*(?!\*)([^\*]+)\*(?!\*)/g, '$1<em>$2<\/em>');
+    esc = esc.replace(/(^|\W)_(.+?)_/g, '$1<em>$2<\/em>');
+
+    // 6) Headings (#, ##, ### at line start)
+    const lines = esc.split(/\r?\n/);
+    let out = '';
+    let listMode = null; // 'ul' | 'ol' | null
+    function closeList(){ if (listMode){ out += `</${listMode}>`; listMode = null; } }
+
+    for (let raw of lines){
+      const line = raw;
+      if (!line.trim()) { closeList(); out += '<br>'; continue; }
+
+      // Headings
+      let m;
+      if ((m = line.match(/^###\s+(.*)$/))) { closeList(); out += '<h3>' + m[1] + '</h3>'; continue; }
+      if ((m = line.match(/^##\s+(.*)$/)))  { closeList(); out += '<h2>' + m[1] + '</h2>'; continue; }
+      if ((m = line.match(/^#\s+(.*)$/)))   { closeList(); out += '<h1>' + m[1] + '</h1>'; continue; }
+
+      // Numbered list
+      if ((m = line.match(/^\s*\d+[\.)]\s+(.+)$/))) {
+        if (listMode !== 'ol'){ closeList(); out += '<ol>'; listMode = 'ol'; }
+        out += '<li>' + m[1] + '</li>';
+        continue;
+      }
+      // Bullet list
+      if ((m = line.match(/^\s*[*+-]\s+(.+)$/))) {
+        if (listMode !== 'ul'){ closeList(); out += '<ul>'; listMode = 'ul'; }
+        out += '<li>' + m[1] + '</li>';
+        continue;
+      }
+
+      // Plain paragraph line
+      closeList();
+      out += line + '<br>';
+    }
+    closeList();
+
+    // 7) Restore inline code
+    out = out.replace(/%%INLINECODE_(\d+)%%/g, function(_, i){
+      const body = inlineCodes[Number(i)] || '';
+      return '<code>' + body + '</code>';
+    });
+
+    // 8) Restore fenced code blocks
+    out = out.replace(/%%CODEBLOCK_(\d+)%%/g, function(_, i){
+      const blk = codeBlocks[Number(i)] || { lang:'', body:'' };
+      const cls = blk.lang ? ` class="language-${blk.lang}"` : '';
+      return `<pre><code${cls}>${blk.body}</code></pre>`;
+    });
+
+    return out;
+  }
+
+  async function send(){
+    const msg = (inputEl.value || '').trim();
+    if(!msg) return;
+    appendMessage(msg, 'user');
+    inputEl.value = '';
+
+    const payload = {
+      message: msg,
+      mode: (modeEl && modeEl.value) || 'free',
+      time_range: (rangeEl && rangeEl.value) || '7d',
+      include_snapshot: !!(snapshotEl && snapshotEl.checked)
+    };
+    const txnId = (txnEl.value || '').trim();
+    if (txnId) { payload.transaction_id = txnId; }
+    if (currentSessionId) { payload.session_id = currentSessionId; }
+
+    try {
+      const t = getCSRFToken();
+      if (!t || t.length < 20) {
+        appendMessage('Security note: CSRF token not ready. Please refresh the page and try again.', 'bot');
+        return;
+      }
+      const res = await fetch('/api/assistant-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': t, 'X-Requested-With': 'XMLHttpRequest' },
+        body: JSON.stringify(payload),
+        credentials: 'same-origin'
+      });
+      const ct = res.headers.get('content-type') || '';
+      const data = ct.includes('application/json') ? await res.json() : { status: 'error', error: 'Unexpected response' };
+      if (res.ok && data.status === 'success') {
+        const reply = typeof data.reply === 'string' ? data.reply : JSON.stringify(data.reply, null, 2);
+        appendMessage(reply, 'bot', (data.meta && data.meta.assistant_created_at) || null);
+        const sid = data.meta && data.meta.session_id;
+        if (sid && !currentSessionId) {
+          currentSessionId = String(sid);
+          sessionStorage.setItem('aiInsightsSessionId', currentSessionId);
+        }
+        // Update timestamp on the last user message if server supplied it
+        const uTime = data.meta && data.meta.user_created_at;
+        if (uTime) {
+          const userMsgs = messagesEl.querySelectorAll('.msg.user .msg-time');
+          if (userMsgs && userMsgs.length) {
+            userMsgs[userMsgs.length-1].textContent = formatTime(uTime);
+          }
+        }
+        // Refresh sessions list ordering/preview
+        loadSessions();
+      } else {
+        appendMessage('Error: ' + (data.error || 'Chat failed'), 'bot');
+      }
+    } catch (e) {
+      appendMessage('Network error: ' + e.message, 'bot');
+    }
+  }
+
+  function getCSRFToken(){
+    // 0) Global injected token
+    if (window.CSRF_TOKEN && typeof window.CSRF_TOKEN === 'string' && window.CSRF_TOKEN.length > 10) {
+      return window.CSRF_TOKEN;
+    }
+    // 0b) Template fallback
+    if (typeof DJANGO_CSRF === 'string' && DJANGO_CSRF && DJANGO_CSRF !== 'NOTPROVIDED' && DJANGO_CSRF.length > 10) {
+      return DJANGO_CSRF;
+    }
+    // 1) Meta fallback from base.html
+    try {
+      const meta = document.querySelector('meta[name="csrf-token"]');
+      if (meta && meta.content && meta.content.length > 10) return meta.content;
+    } catch(e) {}
+    // 1b) Hidden seed input
+    try {
+      const inp = document.querySelector('#__csrf_seed input[name="csrfmiddlewaretoken"]');
+      if (inp && inp.value && inp.value.length > 10) return inp.value;
+    } catch(e) {}
+    // 2) Cookie (if not HttpOnly)
+    try {
+      const name = 'csrftoken=';
+      const parts = document.cookie.split(';');
+      for (let p of parts){
+        p = p.trim();
+        if (p.startsWith(name)) return p.substring(name.length);
+      }
+    } catch(e) {}
+    return '';
+  }
+
+  sendBtn.addEventListener('click', send);
+  inputEl.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ send(); }});
+  document.querySelectorAll('.suggestion').forEach(el => {
+    el.addEventListener('click', () => { inputEl.value = el.getAttribute('data-msg') || ''; inputEl.focus(); });
+  });
+
+  clearBtn?.addEventListener('click', () => { messagesEl.innerHTML = ''; });
+  copyBtn?.addEventListener('click', async () => {
+    const bubbles = messagesEl.querySelectorAll('.msg.bot .bubble');
+    if (!bubbles.length) return;
+    const last = bubbles[bubbles.length - 1];
+    const temp = document.createElement('div');
+    temp.innerHTML = last.innerHTML.replace(/<br\s*\/?>/g, '\n');
+    const text = temp.textContent || temp.innerText || '';
+    try { await navigator.clipboard.writeText(text); } catch(e) {}
+  });
+
+  newChatBtn?.addEventListener('click', async () => {
+    // Create a new empty session on the server, but keep canvas blank
+    suppressAutoOpen = true;
+    try {
+      const t = getCSRFToken();
+      const res = await fetch('/api/assistant-chat/session/new', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': t, 'X-Requested-With': 'XMLHttpRequest' },
+        credentials: 'same-origin'
+      });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok && j.status === 'success' && j.session) {
+        currentSessionId = String(j.session);
+        sessionStorage.setItem('aiInsightsSessionId', currentSessionId);
+      } else {
+        currentSessionId = null;
+        sessionStorage.removeItem('aiInsightsSessionId');
+      }
+    } catch (e) {
+      currentSessionId = null;
+      sessionStorage.removeItem('aiInsightsSessionId');
+    }
+    messagesEl.innerHTML = '';
+    inputEl.value = '';
+    inputEl.focus();
+    await loadSessions();
+  });
+
+  clearAllBtn?.addEventListener('click', async () => {
+    if (!confirm('Clear all chats?')) return;
+    try {
+      const t = getCSRFToken();
+      if (!t || t.length < 20) { appendMessage('Security note: CSRF token not ready. Refresh and try again.', 'bot'); return; }
+      await fetch('/api/assistant-chat/clear', { method: 'POST', headers: { 'X-CSRFToken': t, 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' });
+      currentSessionId = null;
+      sessionStorage.removeItem('aiInsightsSessionId');
+      messagesEl.innerHTML = '';
+      loadSessions();
+    } catch(e) { /* ignore */ }
+  });
+
+  // Initial load of sessions (restores last opened session from localStorage)
+  loadSessions();
+})();
+</script>
+{% comment %}
+Assistant debug tools
+- Flag is computed server-side per user as 'assistant_debug'
+- Visible only when user is staff/superuser AND (DEBUG=True or ASSISTANT_DEBUG_TOOLS=1)
+- Also requires query parameter ?debug=1
+{% endcomment %}
+{% if assistant_debug %}
+<script>
+(function(){
+  try {
+    const params = new URLSearchParams(location.search);
+    if (params.get('debug') !== '1') return;
+    const root = document.querySelector('.chat-container') || document.body;
+    const box = document.createElement('div');
+    box.className = 'card p-3 mt-3';
+    box.innerHTML = `
+      <div class="d-flex align-items-center justify-content-between">
+        <div class="fw-bold">Diagnostics</div>
+        <div class="small text-muted">Restricted</div>
+      </div>
+      <div class="mt-2 d-flex gap-2 flex-wrap">
+        <button class="btn btn-outline-success btn-sm" id="dbgPing">Ping assistant API</button>
+      </div>
+      <pre id="dbgOut" class="mt-2" style="max-height:240px;overflow:auto;background:#f8fafc;border:1px solid #eef2f7;border-radius:8px;padding:8px;"></pre>
+    `;
+    root.appendChild(box);
+    const out = box.querySelector('#dbgOut');
+    box.querySelector('#dbgPing')?.addEventListener('click', async () => {
+      const t = (document.cookie.match(/csrftoken=([^;]+)/)||[])[1]||'';
+      try {
+        const res = await fetch('/api/assistant-chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': t },
+          credentials: 'same-origin',
+          body: JSON.stringify({ message: 'diagnostic ping', mode: 'free', time_range: '7d', include_snapshot: true })
+        });
+        const txt = await res.text();
+        out.textContent = `Status: ${res.status}\nCT: ${res.headers.get('content-type')}\nBody: \n${txt}`;
+      } catch (e) {
+        out.textContent = `Network error: ${e?.message || e}`;
+      }
+    });
+  } catch(e) {}
+})();
+</script>
+{% endif %}
+{% endblock %}

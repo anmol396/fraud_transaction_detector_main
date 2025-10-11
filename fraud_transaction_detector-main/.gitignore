@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+*.so
+
+# Envs & secrets
+.env
+.env.*
+!.env.example
+*.env.local
+*.env.development
+*.env.production
+*.env.prod
+*.env.staging
+*.env.test
+
+# Django
+*.log
+sessions.db
+media/
+staticfiles/
+# compiled static manifests
+staticfiles.json
+logs/
+
+# Build/IDE
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Cache
+.cache/
+.pytest_cache/
+
+# Data dumps
+*.sqlite3
+*.db
+
+# Node (if any)
+node_modules/
+
+# Coverage
+htmlcov/
+.coverage
+.pyre/
+.mypy_cache/
+
+# OS
+*~
+
+DEPLOY_ON_RENDER.md
