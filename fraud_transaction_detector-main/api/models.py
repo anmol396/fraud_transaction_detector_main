@@ -2,6 +2,43 @@
 MongoDB models for API app - file uploads and predictions
 """
 
+from pymongo import MongoClient
+from django.conf import settings
+import os
+
+class MongoConnection:
+    _client = None
+    
+    @classmethod
+    def get_client(cls):
+        # Only attempt connection if MongoDB is enabled
+        if not os.getenv("ENABLE_MONGO_DB", "False").lower() == "true":
+            return None
+            
+        if cls._client is None:
+            try:
+                cls._client = MongoClient(settings.MONGO_URI, serverSelectionTimeoutMS=5000)
+            except Exception as e:
+                print(f"MongoDB connection error: {e}")
+                return None
+        return cls._client
+    
+    @classmethod
+    def get_db(cls):
+        client = cls.get_client()
+        if client is None:
+            return None
+        return client[settings.MONGO_DB]
+    
+    @classmethod
+    def get_collection(cls, collection_name):
+        db = cls.get_db()
+        if db is None:
+            return None
+        return db[collection_name]
+
+
+# ....
 from datetime import datetime
 from bson import ObjectId
 from accounts.mongo_models import MongoConnection
