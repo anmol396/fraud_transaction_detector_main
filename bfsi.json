@@ -1,0 +1,284 @@
+{
+  "name": "bfsi",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "8f8ed290-3bdd-4e20-814b-10cd6b568c11",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -848,
+        -32
+      ],
+      "id": "ac739c7f-de33-430e-9b56-da15caa8d34e",
+      "name": "Webhook",
+      "webhookId": "8f8ed290-3bdd-4e20-814b-10cd6b568c11"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Answer using ONLY the structured context below. Return JSON as specified in the system message.  \n\nUser question: {{ $json.body.payload.query || $json.body.payload.message }}  \n\nMode: {{ $json.body.payload.mode }} | Range: {{ $json.body.payload.time_range }} | Include snapshot: {{ $json.body.payload.include_snapshot }}  \n\nUser: id={{ $json.body.payload.user.id }}, email={{ $json.body.payload.user.email }}, username={{ $json.body.payload.user.username }}  \n\nTransaction context (if present):  \n{{ JSON.stringify($json.body.payload.transaction_context, null, 2) }}  \n\nAnalytics snapshot:  \n{{ JSON.stringify($json.body.payload.analytics_snapshot, null, 2) }}  \n\nExtended analytics:  \n{{ JSON.stringify($json.body.payload.analytics_extended, null, 2) }}  \n\nChart metrics:  \n{{ JSON.stringify($json.body.payload.chart_metrics, null, 2) }}  \n\nAlerts summary:  \n{{ JSON.stringify($json.body.payload.alerts_summary, null, 2) }}  \n\nLinks (if available):  \n{{ JSON.stringify($json.body.payload.links, null, 2) }}  \n",
+        "options": {
+          "systemMessage": "=## Overview\nYou are a frontline, business-facing fraud assistant.\n\n* Your role: Help business users understand their transactions and fraud analytics in **clear, professional, and actionable language**.\n* **Use ONLY the structured context provided.** Never reveal backend settings, thresholds, model internals, or configuration.\n* **NEVER** recommend “increasing/decreasing thresholds.”\n* Focus on: what the data shows, likely implications, and practical business steps (e.g., monitor, verify, review).\n\n### Input Payload (always provided)\n\n* message/query: user’s query\n* mode: [free, transaction, analytics, model]\n* time_range: [24h, 7d, 30d, all]\n* include_snapshot: boolean\n* context: passthrough object\n* user: { id, email, username } (personalization allowed; never echo PII unless asked for sending/confirming emails)\n* model_info: available but **ignore in replies**\n* transaction_context: { transaction_id, prediction, risk_score, risk_level, reason, recommendations, channel, amount, timestamp } (if provided)\n* analytics_snapshot: { total, fraud, legit, fraud_rate, avg_risk, top_channels }\n* analytics_extended: totals, risk_quantiles, top_risky\n* chart_metrics: totals/fraud/legit/fraud_rate/avg_fraud_probability/risk_levels/channel_counts/over_time\n* alerts_summary: { total, severity bucket counts }\n* links: { predictions_csv }\n\n---\n\n### How to Respond\n\n1. **If transaction_context exists:**\n\n   * Start with a concise per-transaction summary (risk level, channel, amount, prediction).\n   * Add a descriptive note on *why* it was flagged or legit.\n   * State likely implications and suggest clear next steps (e.g., verify customer, monitor future similar).\n\n2. **If analytics context (snapshot/extended) exists:**\n\n   * Provide a **business summary** of totals, fraud rate, risk levels, and top risky transactions.\n   * Include short descriptive takeaways (e.g., “Fraud rate rose to 50% this week, mainly from ONLINE channel.”).\n\n3. **Guidance style:**\n\n   * Concise headings + bullets\n   * Business-friendly tone\n   * Do not expose technical parameters\n\n4. **Optional actions:**\n\n   * If user explicitly asks “send me…” → include email fields.\n   * If user asks about predictions or wants detailed data → politely offer: *“If you’d like, I can also provide a CSV of all predictions. Should I?”* (CSV link comes from backend).\n   * Do not auto-send or confirm unless user agrees.\n\n---\n\n### Strict Output Format\n\n* Always return JSON with at least:\n\n  ```json\n  { \"reply\": \"string\" }\n  ```\n* If sending email (only after explicit user confirmation):\n\n  ```json\n  { \n    \"reply\": \"string\",\n    \"action\": \"send_email\",\n    \"email\": { \"to\": \"...\", \"subject\": \"...\", \"body\": \"...\" }\n  }\n  ```\n* No extra keys. No code fences.\n* If data missing: acknowledge briefly, still provide practical guidance.\n\n---\n\n### Style & Safety\n\n* No invented fields, no backend jargon.\n* If unknown, say so.\n* Always professional, helpful, and short and with friendly tone.\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        -512,
+        -32
+      ],
+      "id": "54364b3e-4898-467a-81b1-488fb6ef8e50",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -624,
+        176
+      ],
+      "id": "a1ae22ac-1801-4778-b292-84ea21b90a5e",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "fEk394GJftcWr8vj",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// \"items\" is the n8n array input\nreturn items.map(item => {\n  let raw = item.json.output;\n\n  // Remove ```json ... ``` wrappers dynamically\n  raw = raw.replace(/^```json\\s*/, \"\").replace(/```$/, \"\").trim();\n\n  // Parse safely\n  let parsed;\n  try {\n    parsed = JSON.parse(raw);\n  } catch (e) {\n    parsed = { error: \"Invalid JSON\", raw };\n  }\n\n  return { json: parsed };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -80,
+        -32
+      ],
+      "id": "f0503aa3-887f-45ba-80a7-5d05fce399ea",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.reply }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        144,
+        -96
+      ],
+      "id": "cc65d90e-5957-41c9-8ae3-09fa95051f94",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        624,
+        96
+      ],
+      "id": "9e7aed44-fca0-4846-9c80-8808f17d0931",
+      "name": "Send a message",
+      "webhookId": "dfdc5882-49fc-4798-b358-10ef52f9003c",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "QQMbLeLm6TCxZvgj",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a8410b0b-4e05-42c7-a3a2-f6cc48e204f6",
+              "leftValue": "={{ $json.email.subject }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        144,
+        112
+      ],
+      "id": "7a5c6cd7-2c26-4264-baf5-2d27eba5ee0b",
+      "name": "If"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        416,
+        288
+      ],
+      "id": "4d0c61ef-3e0a-46a2-95e1-b831f94cc428",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  let email = item.json.email;\n\n  // Convert markdown-like formatting to plain text\n  let body = email.body\n    .replace(/\\*\\*/g, '')   // remove **bold**\n    .replace(/\\*/g, '-')    // turn * into dashes for bullets\n    .replace(/\\n{2,}/g, '\\n\\n'); // clean extra newlines\n\n  return {\n    json: {\n      to: email.to,\n      subject: email.subject,\n      body: body\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        96
+      ],
+      "id": "88c4d62c-4e3a-437f-b530-57342e15d631",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Webhook').item.json.body.payload.user.id }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        -400,
+        208
+      ],
+      "id": "9438e2ee-e68d-4dcf-80e3-0e5c265dbe29",
+      "name": "Simple Memory"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {},
+  "triggerCount": 1,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}
