@@ -35,13 +35,13 @@ Key highlights:
  ```
 | Layer                          | Technologies Used                                  | Description                                                                                                     |
 | ------------------------------ | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| 🎨 ** Frontend **                | React 18 · Vite · Tailwind CSS · Axios             | Collects transaction inputs, displays fraud predictions, and visualizes insights through interactive dashboards |
-| ⚙️ ** Backend **                 | FastAPI · Uvicorn · Pandas · Scikit-Learn · Joblib | Handles RESTful API requests, data preprocessing, and communication between frontend and ML model               |
-| 🧠 ** ML Engine / Model Layer ** | XGBoost · Random Forest · SHAP                     | Performs fraud classification, calculates risk probabilities, and generates explainability insights             |
-| 📂 ** Data Layer / Database **   | CSV · PostgreSQL (optional)                        | Stores preprocessed transactions, predictions, and user data for audit and retraining                           |
-| 🔍 ** Explainability Layer **    | SHAP · LIME · PDP                                  | Provides interpretable AI explanations for model decisions and feature importance                               |
-| 📊 ** Monitoring Layer **        | Grafana · InfluxDB                                 | Tracks real-time system health, API latency, and model performance metrics                                      |
-| 🔗 ** Integration Layer **       | n8n Workflow Automation                            | Automates backend operations such as alerting, email notifications, and retraining triggers                     | 
+| 🎨 Frontend                   | React 18 · Vite · Tailwind CSS · Axios             | Collects transaction inputs, displays fraud predictions, and visualizes insights through interactive dashboards |
+| ⚙️ Backend                    | FastAPI · Uvicorn · Pandas · Scikit-Learn · Joblib | Handles RESTful API requests, data preprocessing, and communication between frontend and ML model               |
+| 🧠 ML Engine / Model Layer    | XGBoost · Random Forest · SHAP                     | Performs fraud classification, calculates risk probabilities, and generates explainability insights             |
+| 📂 Data Layer / Database      | CSV · PostgreSQL (optional)                        | Stores preprocessed transactions, predictions, and user data for audit and retraining                           |
+| 🔍 Explainability Layer       | SHAP · LIME · PDP                                  | Provides interpretable AI explanations for model decisions and feature importance                               |
+| 📊 Monitoring Layer           | Grafana · InfluxDB                                 | Tracks real-time system health, API latency, and model performance metrics                                      |
+| 🔗 Integration Layer          | n8n Workflow Automation                            | Automates backend operations such as alerting, email notifications, and retraining triggers                     | 
 
  ```
 
